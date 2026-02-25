@@ -95,3 +95,64 @@ plt.plot(attractionMeasure, label = "Attraction")
 plt.legend()
 plt.xlabel("Length of Conversation")
 plt.show()'''
+
+def run_detailed_simulation(num_steps=10):
+    print("\n=== Starting Detailed Simulation ===")
+    
+    Person1 = Person.Person()
+    Person1.name = "Alice"
+    Person2 = Person.Person()
+    Person2.name = "Bob"
+    
+    personList = {
+        Person1.identity: Person1,
+        Person2.identity: Person2
+    }
+    
+    # Initialize an Event (e.g., a Date or Friendly Hangout)
+    # Context: 1-to-1, Location: Enjoyment (Coffee Shop)
+    TestEvent = Event.Event(persons=personList, event="Enjoyment", locationID="1")
+    
+    # Initial Action
+    actionPacket = Person1.initializeAction(event=TestEvent, targetID=Person2.identity)
+    
+    history = []
+    
+    for step in range(num_steps):
+        print(f"\n--- Step {step + 1} ---")
+        
+        # Log the action
+        sender_id = actionPacket[0]
+        target_id = actionPacket[1]
+        action_type = actionPacket[2]
+        action_desc = actionPacket[3]
+        
+        sender_name = Person1.name if sender_id == Person1.identity else Person2.name
+        target_name = Person1.name if target_id == Person1.identity else Person2.name
+        
+        print(f"Action: {sender_name} -> {target_name}: {action_type} ('{action_desc}')")
+        
+        # Process reaction
+        # The target reacts to the action
+        target_person = personList[target_id]
+        responsePacket = target_person.react(event=TestEvent, action=actionPacket)
+        
+        # Log Internal States AFTER the interaction
+        for p in [Person1, Person2]:
+            print(f"  > {p.name} State:")
+            print(f"    Mood: {p.revealMood()}")
+            print(f"    Emotion Vector: {p.mind.emotionVector}")
+            print(f"    Attraction Bias: {p.mind.biasVector}")
+            other_id = Person2.identity if p == Person1 else Person1.identity
+            if other_id in p.connections:
+                conn = p.connections[other_id]
+                print(f"    Relationship with {personList[other_id].name}: Trust={conn.get('Trust',0):.1f}, Like={conn.get('Like',0):.1f}, Looks={conn.get('Looks',0):.1f}")
+        
+        actionPacket = responsePacket
+        time.sleep(0.1) # Brief pause for effect if running interactively
+
+    print("\n=== Simulation Complete ===")
+
+if __name__ == "__main__":
+    # TestEvent(10)
+    run_detailed_simulation(10)

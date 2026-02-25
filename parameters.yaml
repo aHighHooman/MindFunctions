@@ -1,0 +1,5 @@
+Environment:
+    actionLimit: 10
+
+Object:
+    durability: 500
