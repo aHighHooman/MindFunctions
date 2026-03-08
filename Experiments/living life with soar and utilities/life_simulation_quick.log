@@ -1,0 +1,86 @@
+=== RUN seed=10 ticks=8 agents=3 ===
+TIME 0 WORLD Food=12 Entertainment=18
+ Agent_1 | food=51.1 ent=39.3 goal=(Me, has, tag:Entertainment) action=NoAction inv=0
+ Agent_2 | food=65.2 ent=80.7 goal=(Me, has, tag:Food) action=NoAction inv=0
+ Agent_3 | food=70.6 ent=57.8 goal=(Me, has, tag:Entertainment) action=NoAction inv=0
+TIME 1 WORLD Food=12 Entertainment=18
+ Agent_1 | food=48.9 ent=36.9 goal=(Me, has, tag:Entertainment) action=Action_Get_Entertainment inv=1
+ Agent_2 | food=61.6 ent=78.1 goal=(Me, has, tag:Food) action=Action_Get_Food inv=1
+ Agent_3 | food=67.9 ent=56.3 goal=(Me, has, tag:Entertainment) action=Action_Get_Entertainment inv=1
+TIME 2 WORLD Food=11 Entertainment=16
+ Agent_1 | food=46.7 ent=46.5 goal=(Me, satisfied, entertainment) action=Action_Satisfy_Entertainment inv=1
+ Agent_2 | food=71.9 ent=75.6 goal=(Me, satisfied, food) action=Action_Satisfy_Food inv=1
+ Agent_3 | food=65.1 ent=75.8 goal=(Me, satisfied, entertainment) action=Action_Satisfy_Entertainment inv=1
+TIME 3 WORLD Food=11 Entertainment=16
+ Agent_1 | food=44.5 ent=56.0 goal=(Me, satisfied, entertainment) action=Action_Satisfy_Entertainment inv=1
+ Agent_2 | food=82.3 ent=73.0 goal=(Me, satisfied, food) action=Action_Satisfy_Food inv=0
+ Agent_3 | food=62.3 ent=74.2 goal=(Me, has, tag:Food) action=NoAction inv=1
+TIME 4 WORLD Food=11 Entertainment=16
+ Agent_1 | food=42.3 ent=53.6 goal=(Me, has, tag:Food) action=NoAction inv=1
+ Agent_2 | food=78.7 ent=70.5 goal=(Me, has, tag:Entertainment) action=NoAction inv=0
+ Agent_3 | food=59.6 ent=72.7 goal=(Me, has, tag:Food) action=Action_Get_Food inv=2
+TIME 5 WORLD Food=10 Entertainment=16
+ Agent_1 | food=40.2 ent=51.2 goal=(Me, has, tag:Food) action=Action_Get_Food inv=2
+ Agent_2 | food=75.1 ent=68.0 goal=(Me, has, tag:Entertainment) action=Action_Get_Entertainment inv=1
+ Agent_3 | food=76.8 ent=71.2 goal=(Me, satisfied, food) action=Action_Satisfy_Food inv=1
+TIME 6 WORLD Food=9 Entertainment=15
+ Agent_1 | food=76.0 ent=48.7 goal=(Me, satisfied, food) action=Action_Satisfy_Food inv=1
+ Agent_2 | food=71.4 ent=83.4 goal=(Me, satisfied, entertainment) action=Action_Satisfy_Entertainment inv=1
+ Agent_3 | food=74.0 ent=90.7 goal=(Me, satisfied, entertainment) action=Action_Satisfy_Entertainment inv=1
+TIME 7 WORLD Food=9 Entertainment=15
+ Agent_1 | food=73.8 ent=58.3 goal=(Me, satisfied, entertainment) action=Action_Satisfy_Entertainment inv=1
+ Agent_2 | food=67.8 ent=80.9 goal=(Me, has, tag:Food) action=NoAction inv=1
+ Agent_3 | food=71.3 ent=89.2 goal=(Me, has, tag:Food) action=NoAction inv=1
+--- RUN SUMMARY ---
+Ticks=8
+GlobalTimeEnd=8
+AgentSuccess=2/3
+TrialSuccess=False
+TotalActions=16
+Agent_1: actions=6, impasses=2, subgoals=2, food=73.8, entertainment=58.3, inventory=['Book']
+Agent_2: actions=5, impasses=3, subgoals=3, food=67.8, entertainment=80.9, inventory=['Guitar']
+Agent_3: actions=5, impasses=3, subgoals=3, food=71.3, entertainment=89.2, inventory=['VideoGame']
+
+=== RUN seed=11 ticks=8 agents=3 ===
+TIME 0 WORLD Food=12 Entertainment=18
+ Agent_1 | food=34.9 ent=35.6 goal=(Me, has, tag:Food) action=NoAction inv=0
+ Agent_2 | food=50.0 ent=37.5 goal=(Me, has, tag:Entertainment) action=NoAction inv=0
+ Agent_3 | food=49.4 ent=68.5 goal=(Me, has, tag:Food) action=NoAction inv=0
+TIME 1 WORLD Food=12 Entertainment=18
+ Agent_1 | food=32.7 ent=33.9 goal=(Me, has, tag:Food) action=Action_Get_Food inv=1
+ Agent_2 | food=47.6 ent=34.6 goal=(Me, has, tag:Entertainment) action=Action_Get_Entertainment inv=1
+ Agent_3 | food=45.5 ent=65.7 goal=(Me, has, tag:Food) action=Action_Get_Food inv=1
+TIME 2 WORLD Food=10 Entertainment=17
+ Agent_1 | food=68.6 ent=32.2 goal=(Me, satisfied, food) action=Action_Satisfy_Food inv=0
+ Agent_2 | food=45.2 ent=46.7 goal=(Me, satisfied, entertainment) action=Action_Satisfy_Entertainment inv=1
+ Agent_3 | food=55.6 ent=62.9 goal=(Me, satisfied, food) action=Action_Satisfy_Food inv=1
+TIME 3 WORLD Food=10 Entertainment=17
+ Agent_1 | food=66.5 ent=30.6 goal=(Me, has, tag:Entertainment) action=NoAction inv=0
+ Agent_2 | food=42.9 ent=43.8 goal=(Me, has, tag:Food) action=NoAction inv=1
+ Agent_3 | food=65.7 ent=60.1 goal=(Me, satisfied, food) action=Action_Satisfy_Food inv=0
+TIME 4 WORLD Food=10 Entertainment=17
+ Agent_1 | food=64.3 ent=28.9 goal=(Me, has, tag:Entertainment) action=Action_Get_Entertainment inv=1
+ Agent_2 | food=40.5 ent=40.9 goal=(Me, has, tag:Food) action=Action_Get_Food inv=2
+ Agent_3 | food=61.8 ent=57.3 goal=(Me, has, tag:Entertainment) action=NoAction inv=0
+TIME 5 WORLD Food=9 Entertainment=16
+ Agent_1 | food=62.2 ent=36.3 goal=(Me, satisfied, entertainment) action=Action_Satisfy_Entertainment inv=1
+ Agent_2 | food=38.1 ent=52.9 goal=(Me, satisfied, entertainment) action=Action_Satisfy_Entertainment inv=2
+ Agent_3 | food=57.9 ent=54.5 goal=(Me, has, tag:Entertainment) action=Action_Get_Entertainment inv=1
+TIME 6 WORLD Food=9 Entertainment=15
+ Agent_1 | food=60.1 ent=43.6 goal=(Me, satisfied, entertainment) action=Action_Satisfy_Entertainment inv=1
+ Agent_2 | food=73.7 ent=50.0 goal=(Me, satisfied, food) action=Action_Satisfy_Food inv=1
+ Agent_3 | food=53.9 ent=63.7 goal=(Me, satisfied, entertainment) action=Action_Satisfy_Entertainment inv=1
+TIME 7 WORLD Food=9 Entertainment=15
+ Agent_1 | food=57.9 ent=50.9 goal=(Me, satisfied, entertainment) action=Action_Satisfy_Entertainment inv=1
+ Agent_2 | food=71.4 ent=62.1 goal=(Me, satisfied, entertainment) action=Action_Satisfy_Entertainment inv=1
+ Agent_3 | food=50.0 ent=60.9 goal=(Me, has, tag:Food) action=NoAction inv=1
+--- RUN SUMMARY ---
+Ticks=8
+GlobalTimeEnd=8
+AgentSuccess=1/3
+TrialSuccess=False
+TotalActions=17
+Agent_1: actions=6, impasses=2, subgoals=2, food=57.9, entertainment=50.9, inventory=['Podcast']
+Agent_2: actions=6, impasses=2, subgoals=2, food=71.4, entertainment=62.1, inventory=['Basketball']
+Agent_3: actions=5, impasses=3, subgoals=3, food=50.0, entertainment=60.9, inventory=['Book']
+

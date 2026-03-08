@@ -28,11 +28,6 @@ Fluids
 
 
 # World Classes -------------------------------------------
-class NullItem:
-    def __getattr__(self, name):
-        return lambda *args, **kwargs: False
-
-
 class World: 
     def __init__(self):
         self.items = {}
@@ -50,13 +45,41 @@ class World:
     def get(self, item_name):
         return self.items.get(item_name, NullItem())
 
-    def reveal_container_contents(self, container_name: str):
+    def _remove_visible_refs_to(self, target):
+        for name, item in list(self.items.items()):
+            if item is target:
+                del self.items[name]
+
+    def remove_item(self, item_name):
+        item = self.items.pop(item_name, None)
+        if item is None:
+            return None
+
+        # If this was a container-exposed item, remove it from the container too.
+        for maybe_container in list(self.items.values()):
+            if not isinstance(maybe_container, Container):
+                continue
+            for contained_name, contained_item in list(maybe_container.items.items()):
+                if contained_item is item:
+                    del maybe_container.items[contained_name]
+                    return item
+        return item
+
+    def _sync_container_contents_visibility(self, container_name: str):
         c = self.get(container_name)
-        if isinstance(c, Container):
-            # Move everything into the world set
-            for k, v in list(c.items.items()):
+        if not isinstance(c, Container):
+            return
+
+        if c.get_state("is_open"):
+            for k, v in c.items.items():
                 self.add_item(v, k)
-                del c.items[k]
+            return
+
+        for _, contained_item in c.items.items():
+            self._remove_visible_refs_to(contained_item)
+
+    def reveal_container_contents(self, container_name: str):
+        self._sync_container_contents_visibility(container_name)
 
     def find_by_tag(self, tag):
         for name, item in self.items.items():
@@ -66,6 +89,12 @@ class World:
 
     def get_tags(self):
         return getattr(self, "tags", [])
+
+
+# Object Classes -------------------------------------------
+class NullItem:
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: False
 
 class DrinkVessel:
     ID = 0
@@ -90,6 +119,18 @@ class DrinkVessel:
 
     def get_tags(self):
         return getattr(self, "tags", [])
+    
+    def apply_effect(self, p, v, agent, world, *, resolved_name=None, scope=None):
+        if p == "has":
+            before = (self.state.get("has"), bool(self.state.get("is_filled")))
+            self.fill(v)
+            after = (self.state.get("has"), bool(self.state.get("is_filled")))
+            return after != before
+
+        before = self.state.get(p, None)
+        if before == v:
+            return False
+        self.state[p] = v
 
 class FluidTransformer:
     ID = 0
@@ -121,6 +162,23 @@ class FluidTransformer:
         for IO in self.config:
             if self.state["is_filled"] and self.state["has"] == IO[0]:
                 self.fill(IO[1])
+
+    def apply_effect(self, p, v, agent, world, *, resolved_name=None, scope=None):
+        if p == "has" and v == "Hot_Water":
+            before = self.state.get("has")
+            self.transform()
+            return self.state.get("has") != before
+
+        if p == "has":
+            before = self.state.get("has")
+            self.fill(v)
+            return self.state.get("has") != before
+
+        before = self.state.get(p, None)
+        if before == v:
+            return False
+        self.state[p] = v
+        return True
 
 class FluidSource:
     def __init__(self, tags=None):
@@ -191,303 +249,242 @@ class Container:
     def get_tags(self):
         return getattr(self, "tags", [])    
 
+    def apply_effect(self, p, v, agent, world, *, resolved_name=None, scope=None):
+        if p == "is_open" and v is True:
+            if self.state.get("is_open"):
+                return False
+            self.state["is_open"] = True
+            # reveal only works if we know the world-visible name (Cupboard/Pantry/etc.)
+            if resolved_name is not None:
+                world.reveal_container_contents(resolved_name)
+            return True
+
+        before = self.state.get(p, None)
+        if before == v:
+            return False
+        self.state[p] = v
+        return True
+
 # Agent Class -------------------------------------------
-def _is_tag_ref(value):
-    return isinstance(value, str) and value.startswith("tag:")
-
-def _tag_name(value):
-    return value.split(":", 1)[1].strip()
-
 def _add_tag_once(obj, tag):
     if not hasattr(obj, "tags"):
         obj.tags = []
     if not tag in obj.get_tags():
         obj.tags.append(tag)
 
-def _iter_tagged_objects(agent, world, tag):
-    seen = set()
-    for _, item in agent.inventory.items():
-        if tag in item.get_tags() and id(item) not in seen:
-            seen.add(id(item))
-            yield item
-    for _, item in world.items.items():
-        if tag in item.get_tags() and id(item) not in seen:
-            seen.add(id(item))
-            yield item
-
-
-
-def _is_not(pred: str) -> bool:
-    return isinstance(pred, str) and pred.startswith("NOT_")
-
-def _strip_not(pred: str) -> str:
-    return pred[4:] if _is_not(pred) else pred
-
-def _resolve_obj(agent, world, name: str):
-    if _is_tag_ref(name):
-        tag = _tag_name(name)
-        for _, item in agent.inventory.items():
-            if tag in item.get_tags():
-                return item
-        _, item = world.find_by_tag(tag)
-        return item
-    # Prefer inventory (Me holds it), else world
-    if name in agent.inventory:
-        return agent.inventory[name]
-    if name in world.items:
-        return world.items[name]
-    return None
-
-def _find_item_in_map_by_tag(items, tag):
-    for name, item in items.items():
-        if tag in item.get_tags():
-            return name, item
-    return None, None
-
-def holds(agent, world, atom, current_goal=None) -> bool:
-    """
-    atom formats supported:
-      ("goal", goal_atom)
-      (S, P)                 e.g. ("Cupboard","NOT_is_open")
-      (S, P, O)              e.g. ("World","has","Mug"), ("Mug","has","Hot_Water")
-    """
-    if not isinstance(atom, tuple):
-        return False
-
-    # goal check
-    if len(atom) == 2 and atom[0] == "goal":
-        return current_goal == atom[1]
-
-    # Unary: (S, P)
-    if len(atom) == 2:
-        s, p = atom
-        neg = _is_not(p)
-        p = _strip_not(p)
-
-        if _is_tag_ref(s):
-            tag = _tag_name(s)
-            matches = list(_iter_tagged_objects(agent, world, tag))
-            if not matches:
-                return False
-            # For tag refs, interpret NOT_P as "there exists a tagged object where not P"
-            if neg:
-                val = any(not bool(obj.get_state(p)) for obj in matches)
-            else:
-                val =  any(bool(obj.get_state(p)) for obj in matches)
-        else:
-            obj = _resolve_obj(agent, world, s)
-            if obj is None:
-                val = False
-            elif p == "is_open":
-                val = bool(obj.get_state("is_open"))
-            else:
-                val = bool(obj.get_state(p))
-
-            val = not val if neg else val
-
-        return val
-
-    # Binary: (S, P, O)
-    if len(atom) == 3:
-        s, p, o = atom
-        neg = _is_not(p)
-        p = _strip_not(p)
-
-        if s == "World" and p == "has":
-            if _is_tag_ref(o):
-                _, found = world.find_by_tag(_tag_name(o))
-                val = found is not None
-            else:
-                val = (o in world.items)
-            return (not val) if neg else val
-
-        if s == "Me" and p == "has":
-            if _is_tag_ref(o):
-                _, found = _find_item_in_map_by_tag(agent.inventory, _tag_name(o))
-                val = found is not None
-            else:
-                val = (o in agent.inventory)
-            return (not val) if neg else val
-
-        if s == "Me" and p == "drank":
-            val = (o in agent.state.get("drank", set()))
-            return (not val) if neg else val
-
-        if _is_tag_ref(s):
-            tag = _tag_name(s)
-            matches = list(_iter_tagged_objects(agent, world, tag))
-            if not matches:
-                return False
-
-            def _pred(obj):
-                if p == "has":
-                    return obj.get_state("has") == o
-                return obj.get_state(p) == o
-
-            # For tag refs, interpret NOT_P similarly as existential mismatch.
-            if neg:
-                return any(not _pred(obj) for obj in matches)
-            return any(_pred(obj) for obj in matches)
-
-        # Object state: (Item, has, X) etc.
-        obj = _resolve_obj(agent, world, s)
-        if obj is None:
-            val = False
-            return (not val) if neg else val
-
-        if p == "has":
-            if o == "Hot_Water":
-                val = (obj.get_state("has") == "Hot_Water")
-            else:
-                val = (obj.get_state("has") == o)
-        else:
-            # fallback
-            val = (obj.get_state(p) == o)
-
-        return (not val) if neg else val
-
-    return False
-
 def fmt(atom) -> str:
     if isinstance(atom, tuple):
         return "(" + ", ".join(map(str, atom)) + ")"
     return str(atom)
 
+class Rule:
+    @staticmethod
+    def parse_tag(ref):
+        return ref[4:].strip() if isinstance(ref, str) and ref.startswith("tag:") else None
+    
+    @staticmethod
+    def parse_not(p: str):
+        neg = isinstance(p, str) and p.startswith("NOT_")
+        return neg, (p[4:] if neg else p)
 
-# Agent Class -------------------------------------------
+    @classmethod
+    def iter_items(cls, items, ref):
+        """Yield (name,obj) from ONE dict, where ref is either exact key or tag:..."""
+        assert isinstance(ref, str), "ref must be str (iter_items)"
+        tag = cls.parse_tag(ref)
 
-class ActionRules:
+        if tag is None:
+            if ref in items:
+                yield ref, items[ref]
+            return
+
+        for name, obj in items.items():
+            if tag in obj.get_tags():
+                yield name, obj
+
+    @classmethod
+    def find_item(cls, items, ref):
+        return next(cls.iter_items(items, ref), (None, None))
+
+    @classmethod
+    def has_item(cls, items, ref):
+        # boolean membership that supports tag: refs too
+        name, obj = cls.find_item(items, ref)
+        return obj is not None
+
+    @classmethod
+    def iter_subjects(cls, agent, world, ref):
+        assert isinstance(ref, str), "ref must be str (iter_subjects)"
+
+        tag = cls.parse_tag(ref)
+
+        # Name reference: resolve agent first, then world (no dedupe needed)
+        if tag is None:
+            if ref in agent.items:
+                yield ref, agent.items[ref], "agent"
+                return
+            if ref in world.items:
+                yield ref, world.items[ref], "world"
+            return
+
+        # Tag reference: search both scopes + dedupe shared instances
+        seen = set()
+
+        for name, obj in agent.items.items():
+            if tag in obj.get_tags():
+                oid = id(obj)
+                if oid not in seen:
+                    seen.add(oid)
+                    yield name, obj, "agent"
+
+        for name, obj in world.items.items():
+            if tag in obj.get_tags():
+                oid = id(obj)
+                if oid not in seen:
+                    seen.add(oid)
+                    yield name, obj, "world"
+    
+    @classmethod
+    def holds_atom(cls, agent, world, atom, current_goal=None) -> bool:
+        assert isinstance(atom, tuple), "Must be a tuple (RuleReferenceMixin.holds_atom())"
+
+        if atom[0] == "goal":
+            return current_goal == atom[1]
+
+        if len(atom) == 2:
+            # inside holds_atom, for len(atom)==2
+            s, p = atom
+            neg, p = cls.parse_not(p)  # if you adopted the (neg, pred) version
+
+            it = cls.iter_subjects(agent, world, s)
+            if neg:
+                return any(not bool(obj.get_state(p)) for _, obj, _ in it)
+            return any(bool(obj.get_state(p)) for _, obj, _ in it)
+
+        if len(atom) == 3:
+            s, p, o = atom
+            neg,p = cls.parse_not(p)
+
+            if s == "World" and p == "has":
+                val = cls.has_item(world.items, o)
+                return (not val) if neg else val
+
+            if s == "Me" and p == "has":
+                val = cls.has_item(agent.items, o)
+                return (not val) if neg else val
+
+            if s == "Me" and p == "drank":
+                val = (o in agent.state.get("drank", set()))
+                return (not val) if neg else val
+
+            matches = cls.iter_subjects(agent, world, s)
+            if neg:
+                return any(obj.get_state(p) != o for _, obj, _ in matches)
+            return any(obj.get_state(p) == o for _, obj, _ in matches)
+
+        return False
+
+class ActionRule(Rule):
     def __init__(self, name, preconditions, effects):
         self.name = name
-        self.preconditions = preconditions
-        self.effects = effects
+        self.preconditions = list(preconditions)
+        self.effects = [self._coerce_effect(e) for e in effects]
+
+    @staticmethod
+    def _coerce_effect(eff):
+        # Allow old (S,P) shorthand => (S,P,True)
+        if not isinstance(eff, tuple):
+            raise TypeError(f"Effect must be tuple, got {type(eff)}: {eff}")
+        if len(eff) == 2:
+            s, p = eff
+            return (s, p, True)
+        if len(eff) == 3:
+            return eff
+        raise ValueError(f"Effect must be len 2 or 3, got len {len(eff)}: {eff}")
 
     def missing_preconditions(self, agent, world):
-        return [p for p in self.preconditions if not holds(agent, world, p, agent.current_goal())]
+        g = agent.current_goal()
+        return [p for p in self.preconditions if not self.holds_atom(agent, world, p, g)]
 
     def is_applicable(self, agent, world):
-        return len(self.missing_preconditions(agent, world)) == 0
+        return not self.missing_preconditions(agent, world)
+
+    def _default_apply_effect(self, obj, p, v):
+        """Fallback if object doesn't implement apply_effect(). Returns True if changed."""
+        state = getattr(obj, "state", None)
+        if state is None:
+            return False
+
+        # Prefer fill() if available for has=...
+        if p == "has" and hasattr(obj, "fill"):
+            before = (state.get("has"), bool(state.get("is_filled", False)))
+            obj.fill(v)
+            after = (state.get("has"), bool(state.get("is_filled", False)))
+            return after != before
+
+        before = state.get(p, None)
+
+        if v is True:
+            if bool(before):
+                return False
+            state[p] = True
+            return True
+
+        if before == v:
+            return False
+
+        state[p] = v
+        if p == "has" and "is_filled" in state:
+            state["is_filled"] = True
+        return True
+
+    def _try_apply_to_subject(self, agent, world, s, p, v):
+        """
+        Find the first matching subject (by name or tag ref) that can apply (p=v).
+        Returns (resolved_name, applied_bool)
+        """
+        for name, obj, scope in self.iter_subjects(agent, world, s):
+            if hasattr(obj, "apply_effect"):
+                ok = bool(obj.apply_effect(p, v, agent, world, resolved_name=name, scope=scope))
+            else:
+                ok = self._default_apply_effect(obj, p, v)
+
+            if ok:
+                return name, True
+
+        return None, False
 
     def apply(self, agent, world):
-        applied = []  # list[str] for logging
+        applied = []
 
-        for eff in self.effects:
-            # Unary effects: (S, P)
-            if isinstance(eff, tuple) and len(eff) == 2:
-                s, p = eff
-                resolved_name = s
-
-                # World procedural hook
-                if eff == ("World", "Update"):
-                    applied.append("World.Update (no-op placeholder)")
+        for (s, p, v) in self.effects:
+            # Agent-level semantics
+            if s == "Me" and p == "has":
+                world_name, world_obj = self.find_item(world.items, v)  # v can be name or tag:...
+                if world_name is None:
+                    applied.append(f"SKIP ({s},{p},{v}) (missing in World)")
                     continue
 
-                if _is_tag_ref(s) and p == "is_open":
-                    tag = _tag_name(s)
-                    obj = None
-                    for world_name, cand in world.items.items():
-                        if tag in cand.get_tags() and not cand.get_state("is_open"):
-                            obj = cand
-                            resolved_name = world_name
-                            break
-                    if obj is None:
-                        obj = _resolve_obj(agent, world, s)
-                else:
-                    obj = _resolve_obj(agent, world, s)
-                if obj is None:
-                    applied.append(f"SKIP {fmt(eff)} (no object)")
-                    continue
+                agent.items[world_name] = world_obj
+                world.remove_item(world_name)
+                applied.append(f"Me picked up {world_name}")
+                continue
 
-                if p == "is_open":
-                    obj.state["is_open"] = True
-                    applied.append(f"SET {resolved_name}.is_open=True")
-                    # Reveal container contents immediately when it becomes open
-                    world.reveal_container_contents(resolved_name)
-                    applied.append(f"REVEAL contents of {resolved_name} into World")
+            if s == "Me" and p == "drank":
+                agent.state.setdefault("drank", set()).add(v)
+                applied.append(f"Me.drank += {v}")
+                continue
 
-                else:
-                    # generic boolean-ish set
-                    if hasattr(obj, "state"):
-                        obj.state[p] = True
-                        applied.append(f"SET {s}.{p}=True")
-
-            # Binary effects: (S, P, O)
-            elif isinstance(eff, tuple) and len(eff) == 3:
-                s, p, o = eff
-
-                if s == "Me" and p == "has":
-                    # Move from world -> inventory if present
-                    if _is_tag_ref(o):
-                        tag = _tag_name(o)
-                        world_name, world_obj = world.find_by_tag(tag)
-                        inv_name, _ = _find_item_in_map_by_tag(agent.inventory, tag)
-                        if world_obj is not None:
-                            agent.inventory[world_name] = world_obj
-                            del world.items[world_name]
-                            applied.append(f"Me picked up {world_name} via tag:{tag} (World → Inventory)")
-                        elif inv_name is not None:
-                            applied.append(f"Me already has {inv_name} via tag:{tag}")
-                        else:
-                            applied.append(f"SKIP {fmt(eff)} (no tagged object)")
-                    elif o in world.items:
-                        agent.inventory[o] = world.items[o]
-                        del world.items[o]
-                        applied.append(f"Me picked up {o} (World → Inventory)")
-                    elif o in agent.inventory:
-                        applied.append(f"Me already has {o}")
-                    else:
-                        agent.inventory[o] = o
-                        applied.append(f"Me got {o} (toy acquire)")
-                    continue
-                if s == "Me" and p == "drank":
-                    agent.state.setdefault("drank", set()).add(o)
-                    applied.append(f"Me.drank += {o}")
-                    continue
-
-                if _is_tag_ref(s) and p == "has":
-                    tag = _tag_name(s)
-                    obj = None
-                    for cand in _iter_tagged_objects(agent, world, tag):
-                        if o == "Hot_Water" and hasattr(cand, "transform") and cand.get_state("has") == "Water":
-                            obj = cand
-                            break
-                    if obj is None:
-                        obj = _resolve_obj(agent, world, s)
-                else:
-                    obj = _resolve_obj(agent, world, s)
-                if obj is None:
-                    applied.append(f"SKIP {fmt(eff)} (no object)")
-                    continue
-
-                if p == "has":
-                    if o == "Hot_Water":
-                        if hasattr(obj, "transform"):
-                            obj.transform()
-                            applied.append(f"CALL {s}.transform()")
-                            continue
-
-                        # Symbolic hot water model
-                        if hasattr(obj, "fill"):
-                            obj.fill("Hot_Water")
-                            applied.append(f"{s}.fill(Hot_Water)")
-                        else:
-                            obj.state["is_filled"] = True
-                            obj.state["has"] = "Hot_Water"
-                            applied.append(f"SET {s}.has=Hot_Water (filled)")
-
-                    else:
-                        if hasattr(obj, "fill") and o in ("Water", "Coffee", "Hot_Water"):
-                            obj.fill(o)
-                            applied.append(f"{s}.fill({o})")
-                        else:
-                            obj.state["has"] = o
-                            if "is_filled" in getattr(obj, "state", {}):
-                                obj.state["is_filled"] = True
-                            applied.append(f"SET {s}.has={o}")
+            # Generic: ask objects to apply it
+            name, ok = self._try_apply_to_subject(agent, world, s, p, v)
+            if not ok:
+                applied.append(f"SKIP ({s},{p},{v}) (no applicable object)")
+            else:
+                applied.append(f"APPLY {name}.{p}={v}")
 
         return applied
-       
-class ProposalRules:
+
+class ProposalRule(Rule):
     def __init__(self, name, conditions, proposed_action):
         self.name = name
         self.conditions = conditions
@@ -496,7 +493,7 @@ class ProposalRules:
     def is_triggered(self, agent, world):
         g = agent.current_goal()
         for cond in self.conditions:
-            if not holds(agent, world, cond, g):
+            if not self.holds_atom(agent, world, cond, g):
                 return False
         return True
 
@@ -506,10 +503,10 @@ class RuleSet:
         self.proposal_rules = []
 
     def create_action_rule(self, name, preconditions, effects):
-        self.action_rules.append(ActionRules(name, preconditions, effects))
+        self.action_rules.append(ActionRule(name, preconditions, effects))
 
     def create_proposal_rule(self, name, conditions, proposed_action):
-        self.proposal_rules.append(ProposalRules(name, conditions, proposed_action))
+        self.proposal_rules.append(ProposalRule(name, conditions, proposed_action))
 
 class Agent:
     def __init__(self, world, ruleset, verbose=True, log_fn=print):
@@ -518,7 +515,7 @@ class Agent:
 
         self.name = "Agent"
         self.goals = [("Me", "drank", "Coffee")]  # default top goal
-        self.inventory = {}
+        self.items = {}
         self.knowledge = {}
         self.state = {"drank": set()}
 
@@ -545,7 +542,7 @@ class Agent:
             self.knowledge[item_name] = item.get_state("all") if hasattr(item, "get_state") else {}
 
     def goal_satisfied(self, goal_atom):
-        return holds(self, self.world, goal_atom, self.current_goal())
+        return ProposalRule.holds_atom(self, self.world, goal_atom, self.current_goal())
 
     def createProposals(self):
         # return list of (action_name, proposal_rule_name)
@@ -641,6 +638,8 @@ class Agent:
                 break
         return self.goals == []
 
+
+# Testing Functions ----------------------------------
 def build_world():
     stage = World()
     stage.add_item(Container(), "Cupboard")
@@ -764,11 +763,11 @@ def build_rules():
     )
     rules.create_action_rule("Action_Check_Cupboard_1",
         preconditions=[("World","has",CONTAINER), (CONTAINER, "NOT_is_open")],
-        effects=[(CONTAINER,"is_open"), ("World","Update")]
+        effects=[(CONTAINER,"is_open")]
     )
     rules.create_action_rule("Action_Check_Cupboard_2",
         preconditions=[("World","has",CONTAINER), (CONTAINER, "NOT_is_open")],
-        effects=[(CONTAINER,"is_open"), ("World","Update")]
+        effects=[(CONTAINER,"is_open")]
     )
     rules.create_action_rule("Action_Fill_Mug_Hot_Water",
         preconditions=[("World","has",HOT_WATER_PROVIDER), (HOT_WATER_PROVIDER,"has","Hot_Water"), ("Me","has",DRINK_VESSEL)],
@@ -896,7 +895,7 @@ if __name__ == "__main__":
     stage = build_world()
     rules = build_rules()
     agent = Agent(stage, rules, verbose=True)
-    ok = agent.run(max_steps=200)
+    ok = agent.run(max_steps=20000)
     print("\nSingle-run success:", ok)
     print("Action sequence:", agent.action_history)
 
