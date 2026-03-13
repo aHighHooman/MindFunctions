@@ -1,18 +1,8 @@
 import random
-
-
-def _add_tag_once(obj, tag):
-    if not hasattr(obj, "tags"):
-        obj.tags = []
-    if tag not in obj.get_tags():
-        obj.tags.append(tag)
-
-
 def fmt(atom) -> str:
     if isinstance(atom, tuple):
         return "(" + ", ".join(map(str, atom)) + ")"
     return str(atom)
-
 
 class NullItem:
     def __getattr__(self, name):

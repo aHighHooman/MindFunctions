@@ -1,5 +1,7 @@
+import importlib.util
 import random
 from collections import Counter
+from pathlib import Path
 
 
 '''
@@ -26,24 +28,57 @@ Fluids
     - Coffee   
 '''
 
-
 # World Classes -------------------------------------------
-class World: 
+class World:
     def __init__(self):
-        self.items = {}
+        self.locations = {}
+        self.current_location_name = None
 
-    def add_item(self, item, name=None):
-        base = name or item.name
-        item_name = base
+    @property
+    def items(self):
+        if self.current_location_name is None:
+            return {}
+        current = self.locations.get(self.current_location_name)
+        if current is None:
+            return {}
+        return current.items
+
+    def add_location(self, location, name=None, *, set_current=False):
+        base = name or location.name
+        location_name = base
         count = 2
-        # If a name is already used by a different instance, suffix it.
-        while item_name in self.items and self.items[item_name] is not item:
-            item_name = f"{base}_{count}"
+        while location_name in self.locations and self.locations[location_name] is not location:
+            location_name = f"{base}_{count}"
             count += 1
-        self.items[item_name] = item
+        self.locations[location_name] = location
+        if set_current or self.current_location_name is None:
+            self.current_location_name = location_name
+        return location_name
+
+    def set_current_location(self, location_name):
+        if location_name not in self.locations:
+            return False
+        if self.current_location_name == location_name:
+            return False
+        self.current_location_name = location_name
+        return True
+
+    def add_item(self, item, name=None, location_name=None):
+        if not self.locations:
+            self.add_location(Location("Default"), set_current=True)
+
+        target_location_name = location_name or self.current_location_name
+        location = self.locations[target_location_name]
+        return location.add_item(item, name)
 
     def get(self, item_name):
         return self.items.get(item_name, NullItem())
+
+    def get_from_location(self, location_name, item_name):
+        location = self.locations.get(location_name)
+        if location is None:
+            return NullItem()
+        return location.get(item_name)
 
     def _remove_visible_refs_to(self, target):
         for name, item in list(self.items.items()):
@@ -55,7 +90,6 @@ class World:
         if item is None:
             return None
 
-        # If this was a container-exposed item, remove it from the container too.
         for maybe_container in list(self.items.values()):
             if not isinstance(maybe_container, Container):
                 continue
@@ -81,20 +115,82 @@ class World:
     def reveal_container_contents(self, container_name: str):
         self._sync_container_contents_visibility(container_name)
 
-    def find_by_tag(self, tag):
-        for name, item in self.items.items():
-            if tag in item.get_tags():
-                return name, item
-        return None, None
-
     def get_tags(self):
         return getattr(self, "tags", [])
-
 
 # Object Classes -------------------------------------------
 class NullItem:
     def __getattr__(self, name):
         return lambda *args, **kwargs: False
+
+
+class Location:
+    def __init__(self, name="Location", tags=None):
+        self.name = name
+        self.tags = ["Location"] + list(tags or [])
+        self.state = {}
+        self.items = {}
+
+    def get_state(self, condition):
+        if condition == "all":
+            return self.state
+        return self.state.get(condition, False)
+
+    def add_item(self, item, name=None):
+        base = name or item.name
+        item_name = base
+        count = 2
+        while item_name in self.items and self.items[item_name] is not item:
+            item_name = f"{base}_{count}"
+            count += 1
+        self.items[item_name] = item
+        return item_name
+
+    def get(self, item_name):
+        return self.items.get(item_name, NullItem())
+
+    def get_tags(self):
+        return getattr(self, "tags", [])
+
+
+class Shop:
+    def __init__(self, name="Shop", provided_items=None, tags=None):
+        self.name = name
+        self.tags = ["Shop"] + list(tags or [])
+        self.state = {"is_open": True}
+        for item_name in provided_items or []:
+            _add_tag_once(self, f"Provides_{item_name}")
+
+    def get_state(self, condition):
+        if condition == "all":
+            return self.state
+        return self.state.get(condition, False)
+
+    def get_tags(self):
+        return getattr(self, "tags", [])
+
+
+class SimpleItem:
+    def __init__(self, name="Item", tags=None, state=None):
+        self.name = name
+        self.tags = list(tags or [])
+        self.state = dict(state or {})
+
+    def get_state(self, condition):
+        if condition == "all":
+            return self.state
+        return self.state.get(condition, False)
+
+    def get_tags(self):
+        return getattr(self, "tags", [])
+
+    def apply_effect(self, p, v, agent, world, *, resolved_name=None, scope=None):
+        before = self.state.get(p, None)
+        if before == v:
+            return False
+        self.state[p] = v
+        return True
+
 
 class DrinkVessel:
     ID = 0
@@ -131,6 +227,7 @@ class DrinkVessel:
         if before == v:
             return False
         self.state[p] = v
+        return True
 
 class FluidTransformer:
     ID = 0
@@ -240,9 +337,6 @@ class Container:
             count += 1
         self.items[item_name] = item   
 
-    def checkItems(self, item_name):
-        return self.items.keys()
-    
     def get(self, item_name):
         return self.items.get(item_name, NullItem())
 
@@ -365,6 +459,10 @@ class Rule:
             s, p, o = atom
             neg,p = cls.parse_not(p)
 
+            if s == "Me" and p == "at":
+                val = (agent.state.get("location") == o)
+                return (not val) if neg else val
+
             if s == "World" and p == "has":
                 val = cls.has_item(world.items, o)
                 return (not val) if neg else val
@@ -375,6 +473,10 @@ class Rule:
 
             if s == "Me" and p == "drank":
                 val = (o in agent.state.get("drank", set()))
+                return (not val) if neg else val
+
+            if s in world.locations and p == "has":
+                val = cls.has_item(world.locations[s].items, o)
                 return (not val) if neg else val
 
             matches = cls.iter_subjects(agent, world, s)
@@ -409,56 +511,20 @@ class ActionRule(Rule):
     def is_applicable(self, agent, world):
         return not self.missing_preconditions(agent, world)
 
-    def _default_apply_effect(self, obj, p, v):
-        """Fallback if object doesn't implement apply_effect(). Returns True if changed."""
-        state = getattr(obj, "state", None)
-        if state is None:
-            return False
-
-        # Prefer fill() if available for has=...
-        if p == "has" and hasattr(obj, "fill"):
-            before = (state.get("has"), bool(state.get("is_filled", False)))
-            obj.fill(v)
-            after = (state.get("has"), bool(state.get("is_filled", False)))
-            return after != before
-
-        before = state.get(p, None)
-
-        if v is True:
-            if bool(before):
-                return False
-            state[p] = True
-            return True
-
-        if before == v:
-            return False
-
-        state[p] = v
-        if p == "has" and "is_filled" in state:
-            state["is_filled"] = True
-        return True
-
-    def _try_apply_to_subject(self, agent, world, s, p, v):
-        """
-        Find the first matching subject (by name or tag ref) that can apply (p=v).
-        Returns (resolved_name, applied_bool)
-        """
-        for name, obj, scope in self.iter_subjects(agent, world, s):
-            if hasattr(obj, "apply_effect"):
-                ok = bool(obj.apply_effect(p, v, agent, world, resolved_name=name, scope=scope))
-            else:
-                ok = self._default_apply_effect(obj, p, v)
-
-            if ok:
-                return name, True
-
-        return None, False
-
     def apply(self, agent, world):
         applied = []
 
         for (s, p, v) in self.effects:
             # Agent-level semantics
+            if s == "Me" and p == "at":
+                moved = world.set_current_location(v)
+                agent.state["location"] = world.current_location_name
+                if moved:
+                    applied.append(f"Me moved to {v}")
+                else:
+                    applied.append(f"SKIP ({s},{p},{v}) (already there or missing location)")
+                continue
+
             if s == "Me" and p == "has":
                 world_name, world_obj = self.find_item(world.items, v)  # v can be name or tag:...
                 if world_name is None:
@@ -475,12 +541,62 @@ class ActionRule(Rule):
                 applied.append(f"Me.drank += {v}")
                 continue
 
-            # Generic: ask objects to apply it
-            name, ok = self._try_apply_to_subject(agent, world, s, p, v)
-            if not ok:
+            if s == "Me" and p == "consume":
+                item_name, _ = self.find_item(agent.items, v)
+                if item_name is None:
+                    applied.append(f"SKIP consume {v} (missing in inventory)")
+                    continue
+
+                del agent.items[item_name]
+                applied.append(f"Me consumed {item_name}")
+                continue
+
+            if s == "Me" and p == "create":
+                item_name = agent.create_item(v)
+                if item_name is None:
+                    applied.append(f"SKIP create {v} (no item factory)")
+                    continue
+
+                applied.append(f"Me created {item_name}")
+                continue
+
+            applied_name = None
+            for name, obj, scope in self.iter_subjects(agent, world, s):
+                if hasattr(obj, "apply_effect"):
+                    ok = bool(obj.apply_effect(p, v, agent, world, resolved_name=name, scope=scope))
+                else:
+                    state = getattr(obj, "state", None)
+                    if state is None:
+                        ok = False
+                    elif p == "has" and hasattr(obj, "fill"):
+                        before = (state.get("has"), bool(state.get("is_filled", False)))
+                        obj.fill(v)
+                        after = (state.get("has"), bool(state.get("is_filled", False)))
+                        ok = after != before
+                    elif v is True:
+                        if bool(state.get(p, None)):
+                            ok = False
+                        else:
+                            state[p] = True
+                            ok = True
+                    else:
+                        before = state.get(p, None)
+                        if before == v:
+                            ok = False
+                        else:
+                            state[p] = v
+                            if p == "has" and "is_filled" in state:
+                                state["is_filled"] = True
+                            ok = True
+
+                if ok:
+                    applied_name = name
+                    break
+
+            if applied_name is None:
                 applied.append(f"SKIP ({s},{p},{v}) (no applicable object)")
             else:
-                applied.append(f"APPLY {name}.{p}={v}")
+                applied.append(f"APPLY {applied_name}.{p}={v}")
 
         return applied
 
@@ -509,15 +625,26 @@ class RuleSet:
         self.proposal_rules.append(ProposalRule(name, conditions, proposed_action))
 
 class Agent:
-    def __init__(self, world, ruleset, verbose=True, log_fn=print):
+    def __init__(
+        self,
+        world,
+        ruleset,
+        verbose=True,
+        log_fn=print,
+        goals=None,
+        proposal_selector=None,
+        item_factories=None,
+    ):
         self.world = world
         self.ruleset = ruleset
 
         self.name = "Agent"
-        self.goals = [("Me", "drank", "Coffee")]  # default top goal
+        self.goals = list(goals) if goals is not None else [("Me", "drank", "Coffee")]
         self.items = {}
         self.knowledge = {}
-        self.state = {"drank": set()}
+        self.state = {"drank": set(), "location": world.current_location_name}
+        self.proposal_selector = proposal_selector
+        self.item_factories = dict(item_factories or {})
 
         # logging / stats
         self.verbose = verbose
@@ -555,16 +682,31 @@ class Agent:
     def SelectProposal(self, proposals):
         if not proposals:
             return None
+        if self.proposal_selector is not None:
+            return self.proposal_selector(proposals)
         return random.choice(proposals)
 
-    def _find_action_rule(self, action_name):
-        for ar in self.ruleset.action_rules:
-            if ar.name == action_name:
-                return ar
-        return None
+    def create_item(self, item_key):
+        factory = self.item_factories.get(item_key)
+        if factory is None:
+            return None
+
+        item = factory() if callable(factory) else factory
+        if item is None:
+            return None
+
+        base_name = getattr(item, "name", item_key)
+        item_name = base_name
+        count = 2
+        while item_name in self.items and self.items[item_name] is not item:
+            item_name = f"{base_name}_{count}"
+            count += 1
+
+        self.items[item_name] = item
+        return item_name
 
     def executeAction(self, action_name):
-        ar = self._find_action_rule(action_name)
+        ar = next((rule for rule in self.ruleset.action_rules if rule.name == action_name), None)
         if ar is None:
             self.log(f"[IMPASSE] No action rule named {action_name}")
             self.impasse_count += 1
@@ -642,11 +784,17 @@ class Agent:
 # Testing Functions ----------------------------------
 def build_world():
     stage = World()
-    stage.add_item(Container(), "Cupboard")
-    stage.add_item(FluidTransformer(), "Kettle")
-    stage.add_item(FluidSource(), "Sink")
-    stage.get("Cupboard").add_item(DrinkMix(), "CoffeeBox")
-    stage.get("Cupboard").add_item(DrinkVessel(), "Mug")
+    stage.add_location(Location("House", tags=["Home"]), set_current=True)
+    stage.add_location(Location("Village", tags=["Settlement"]))
+
+    stage.add_item(Container(), "Cupboard", location_name="House")
+    stage.add_item(FluidTransformer(), "Kettle", location_name="House")
+    stage.add_item(FluidSource(), "Sink", location_name="House")
+    stage.get_from_location("House", "Cupboard").add_item(DrinkVessel(), "Mug")
+
+    stage.add_item(Shop("GeneralStore", provided_items=["CoffeeBox", "Mug"]), "GeneralStore", location_name="Village")
+    stage.add_item(Shop("ApplianceShop", provided_items=["Kettle"]), "ApplianceShop", location_name="Village")
+    stage.add_item(DrinkMix(), "CoffeeBox", location_name="Village")
     return stage
 
 def build_multi_world(
@@ -663,13 +811,15 @@ def build_multi_world(
     rng = random.Random(seed)
 
     stage = World()
+    stage.add_location(Location("House", tags=["Home"]), set_current=True)
+    stage.add_location(Location("Village", tags=["Settlement"]))
 
     base_container_names = ["Cupboard", "Pantry", "Drawer", "Cabinet", "Shelf", "Box"]
     container_names = []
     for i in range(num_containers):
         name = base_container_names[i] if i < len(base_container_names) else f"Container_{i+1}"
         container_names.append(name)
-        stage.add_item(Container(), name)
+        stage.add_item(Container(), name, location_name="House")
 
     for _ in range(num_kettles):
         k = FluidTransformer()
@@ -679,109 +829,43 @@ def build_multi_world(
             k.transform()
         elif r < hot_kettle_probability + water_kettle_probability:
             k.fill("Water")
-        stage.add_item(k, "Kettle")
+        stage.add_item(k, "Kettle", location_name="House")
 
     for _ in range(num_sinks):
-        stage.add_item(FluidSource(), "Sink")
+        stage.add_item(FluidSource(), "Sink", location_name="House")
+
+    stage.add_item(Shop("GeneralStore", provided_items=["CoffeeBox", "Mug"]), "GeneralStore", location_name="Village")
+    stage.add_item(Shop("ApplianceShop", provided_items=["Kettle"]), "ApplianceShop", location_name="Village")
 
     objects = [DrinkVessel() for _ in range(num_drink_vessels)] + [DrinkMix() for _ in range(num_drink_mixes)]
     for obj in objects:
-        if num_containers == 0 or rng.random() < visible_probability:
-            stage.add_item(obj, obj.name)
+        if isinstance(obj, DrinkMix) and rng.random() < 0.7:
+            stage.add_item(obj, obj.name, location_name="Village")
+        elif num_containers == 0 or rng.random() < visible_probability:
+            stage.add_item(obj, obj.name, location_name="House")
         else:
             cname = rng.choice(container_names)
-            stage.get(cname).add_item(obj, obj.name)
+            stage.get_from_location("House", cname).add_item(obj, obj.name)
 
     return stage
 
-def build_rules():
+def build_rules(bundle_name="coffee", **bundle_kwargs):
+    rule_library_path = Path(__file__).with_name("soar_rule_library.py")
+    spec = importlib.util.spec_from_file_location("soar_rule_library", rule_library_path)
+    rule_library = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None, f"Unable to load rule library from {rule_library_path}"
+    spec.loader.exec_module(rule_library)
+
+    bundle = rule_library.get_rule_bundle(bundle_name, **bundle_kwargs)
     rules = RuleSet()
-    DRINK_VESSEL = "tag:Drink_Vessel"
-    FLUID_TRANSFORMER = "tag:Fluid_Transformer"
-    HOT_WATER_PROVIDER = "tag:Provides_Hot_Water"
-    WATER_DISPENSER = "tag:Dispenses_Water"
-    CONTAINER = "tag:Container"
-
-    # proposals
-    rules.create_proposal_rule("Proposal_Drink_Coffee",
-        conditions=[("goal", ("Me", "drank", "Coffee"))],
-        proposed_action="Action_Drink_Coffee"
-    )
-    rules.create_proposal_rule("Proposal_Mix_Coffee_And_Water",
-        conditions=[("goal", (DRINK_VESSEL, "has", "Coffee"))],
-        proposed_action="Action_Mix_Coffee_And_Water"
-    )
-    rules.create_proposal_rule("Proposal_Grab_CoffeeBox",
-        conditions=[("goal", ("Me", "has", "CoffeeBox"))],
-        proposed_action="Action_Grab_CoffeeBox"
-    )
-    rules.create_proposal_rule("Proposal_Grab_Drink_Vessel",
-        conditions=[("goal", ("Me", "has", DRINK_VESSEL))],
-        proposed_action="Action_Grab_Drink_Vessel"
-    )
-    rules.create_proposal_rule("Proposal_Check_Cupboard_1",
-        conditions=[("goal", ("World", "has", "CoffeeBox")), ("World", "has", CONTAINER), (CONTAINER, "NOT_is_open")],
-        proposed_action="Action_Check_Cupboard_1"
-    )
-    rules.create_proposal_rule("Proposal_Check_Cupboard_2",
-        conditions=[("goal", ("World", "has", DRINK_VESSEL)), ("World", "has", CONTAINER), (CONTAINER, "NOT_is_open")],
-        proposed_action="Action_Check_Cupboard_2"
-    )
-    rules.create_proposal_rule("Proposal_Fill_Mug_Hot_Water",
-        conditions=[("goal", (DRINK_VESSEL, "has", "Hot_Water")), ("World", "has", HOT_WATER_PROVIDER)],
-        proposed_action="Action_Fill_Mug_Hot_Water"
-    )
-    rules.create_proposal_rule("Proposal_Boil_Water",
-        conditions=[("goal", (FLUID_TRANSFORMER, "has", "Hot_Water")), ("World", "has", FLUID_TRANSFORMER)],
-        proposed_action="Action_Boil_Water"
-    )
-    rules.create_proposal_rule("Proposal_Boil_Water_From_Hot_Water_Provider_Goal",
-        conditions=[("goal", (HOT_WATER_PROVIDER, "has", "Hot_Water")), ("World", "has", FLUID_TRANSFORMER)],
-        proposed_action="Action_Boil_Water"
-    )
-    rules.create_proposal_rule("Proposal_Fill_Kettle_Water",
-        conditions=[("goal", (FLUID_TRANSFORMER, "has", "Water")), ("World", "has", WATER_DISPENSER)],
-        proposed_action="Action_Fill_Kettle_Water"
-    )
-
-    # actions
-    rules.create_action_rule("Action_Drink_Coffee",
-        preconditions=[("Me","has",DRINK_VESSEL), (DRINK_VESSEL,"has","Coffee")],
-        effects=[("Me","drank","Coffee")]
-    )
-    rules.create_action_rule("Action_Mix_Coffee_And_Water",
-        preconditions=[("Me","has","CoffeeBox"), ("Me","has",DRINK_VESSEL), (DRINK_VESSEL,"has","Hot_Water")],
-        effects=[(DRINK_VESSEL,"has","Coffee")]
-    )
-    rules.create_action_rule("Action_Grab_CoffeeBox",
-        preconditions=[("World","has","CoffeeBox")],
-        effects=[("Me","has","CoffeeBox")]
-    )
-    rules.create_action_rule("Action_Grab_Drink_Vessel",
-        preconditions=[("World","has",DRINK_VESSEL)],
-        effects=[("Me","has",DRINK_VESSEL)]
-    )
-    rules.create_action_rule("Action_Check_Cupboard_1",
-        preconditions=[("World","has",CONTAINER), (CONTAINER, "NOT_is_open")],
-        effects=[(CONTAINER,"is_open")]
-    )
-    rules.create_action_rule("Action_Check_Cupboard_2",
-        preconditions=[("World","has",CONTAINER), (CONTAINER, "NOT_is_open")],
-        effects=[(CONTAINER,"is_open")]
-    )
-    rules.create_action_rule("Action_Fill_Mug_Hot_Water",
-        preconditions=[("World","has",HOT_WATER_PROVIDER), (HOT_WATER_PROVIDER,"has","Hot_Water"), ("Me","has",DRINK_VESSEL)],
-        effects=[(DRINK_VESSEL,"has","Hot_Water")]
-    )
-    rules.create_action_rule("Action_Boil_Water",
-        preconditions=[("World","has",FLUID_TRANSFORMER), (FLUID_TRANSFORMER,"has","Water")],
-        effects=[(FLUID_TRANSFORMER,"has", "Hot_Water")]
-    )
-    rules.create_action_rule("Action_Fill_Kettle_Water",
-        preconditions=[("World","has",WATER_DISPENSER), ("World","has",FLUID_TRANSFORMER)],
-        effects=[(FLUID_TRANSFORMER,"has","Water")]
-    )
-
+    rules.proposal_rules = [
+        ProposalRule(spec["name"], spec["conditions"], spec["proposed_action"])
+        for spec in bundle["proposal_rules"]
+    ]
+    rules.action_rules = [
+        ActionRule(spec["name"], spec["preconditions"], spec["effects"])
+        for spec in bundle["action_rules"]
+    ]
     return rules
 
 def run_trials(n=50, verbose_first=1):
