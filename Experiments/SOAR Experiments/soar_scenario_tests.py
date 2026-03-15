@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 def load_soar_module():
-    module_path = Path(__file__).with_name("MakingCoffeeWithSoar.py")
+    module_path = Path(__file__).with_name("MakingCoffeeWithSoarVillage.py")
     spec = importlib.util.spec_from_file_location("making_coffee_soar", module_path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None, f"Unable to load SOAR module from {module_path}"
