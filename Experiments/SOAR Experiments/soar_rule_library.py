@@ -13,6 +13,116 @@ def build_coffee_rule_bundle():
                 "proposed_action": "Action_Drink_Coffee",
             },
             {
+                "name": "Proposal_Mix_Coffee_And_Water",
+                "conditions": [("goal", (drink_vessel, "has", "Coffee"))],
+                "proposed_action": "Action_Mix_Coffee_And_Water",
+            },
+            {
+                "name": "Proposal_Grab_CoffeeBox",
+                "conditions": [("goal", ("Me", "has", "CoffeeBox"))],
+                "proposed_action": "Action_Grab_CoffeeBox",
+            },
+            {
+                "name": "Proposal_Grab_Drink_Vessel",
+                "conditions": [("goal", ("Me", "has", drink_vessel))],
+                "proposed_action": "Action_Grab_Drink_Vessel",
+            },
+            {
+                "name": "Proposal_Check_Cupboard_1",
+                "conditions": [("goal", ("World", "has", "CoffeeBox")), ("World", "has", container), (container, "is_open", False)],
+                "proposed_action": "Action_Check_Cupboard_1",
+            },
+            {
+                "name": "Proposal_Check_Cupboard_2",
+                "conditions": [("goal", ("World", "has", drink_vessel)), ("World", "has", container), (container, "is_open", False)],
+                "proposed_action": "Action_Check_Cupboard_2",
+            },
+            {
+                "name": "Proposal_Fill_Mug_Hot_Water",
+                "conditions": [("goal", (drink_vessel, "has", "Hot_Water")), ("World", "has", hot_water_provider)],
+                "proposed_action": "Action_Fill_Mug_Hot_Water",
+            },
+            {
+                "name": "Proposal_Boil_Water",
+                "conditions": [("goal", (fluid_transformer, "has", "Hot_Water")), ("World", "has", fluid_transformer)],
+                "proposed_action": "Action_Boil_Water",
+            },
+            {
+                "name": "Proposal_Boil_Water_From_Hot_Water_Provider_Goal",
+                "conditions": [("goal", (hot_water_provider, "has", "Hot_Water")), ("World", "has", fluid_transformer)],
+                "proposed_action": "Action_Boil_Water",
+            },
+            {
+                "name": "Proposal_Fill_Kettle_Water",
+                "conditions": [("goal", (fluid_transformer, "has", "Water")), ("World", "has", water_dispenser)],
+                "proposed_action": "Action_Fill_Kettle_Water",
+            },
+        ],
+        "action_rules": [
+            {
+                "name": "Action_Drink_Coffee",
+                "preconditions": [("Me", "has", drink_vessel), (drink_vessel, "has", "Coffee")],
+                "effects": [("Me", "drank", "Coffee")],
+            },
+            {
+                "name": "Action_Mix_Coffee_And_Water",
+                "preconditions": [("Me", "has", "CoffeeBox"), ("Me", "has", drink_vessel), (drink_vessel, "has", "Hot_Water")],
+                "effects": [(drink_vessel, "has", "Coffee")],
+            },
+            {
+                "name": "Action_Grab_CoffeeBox",
+                "preconditions": [("World", "has", "CoffeeBox")],
+                "effects": [("Me", "has", "CoffeeBox")],
+            },
+            {
+                "name": "Action_Grab_Drink_Vessel",
+                "preconditions": [("World", "has", drink_vessel)],
+                "effects": [("Me", "has", drink_vessel)],
+            },
+            {
+                "name": "Action_Check_Cupboard_1",
+                "preconditions": [("World", "has", container), (container, "is_open", False)],
+                "effects": [(container, "is_open", True)],
+            },
+            {
+                "name": "Action_Check_Cupboard_2",
+                "preconditions": [("World", "has", container), (container, "is_open", False)],
+                "effects": [(container, "is_open", True)],
+            },
+            {
+                "name": "Action_Fill_Mug_Hot_Water",
+                "preconditions": [("World", "has", hot_water_provider), (hot_water_provider, "has", "Hot_Water"), ("Me", "has", drink_vessel)],
+                "effects": [(drink_vessel, "has", "Hot_Water")],
+            },
+            {
+                "name": "Action_Boil_Water",
+                "preconditions": [("World", "has", fluid_transformer), (fluid_transformer, "has", "Water")],
+                "effects": [(fluid_transformer, "has", "Hot_Water")],
+            },
+            {
+                "name": "Action_Fill_Kettle_Water",
+                "preconditions": [("World", "has", water_dispenser), ("World", "has", fluid_transformer)],
+                "effects": [(fluid_transformer, "has", "Water")],
+            },
+        ],
+    }
+
+
+def build_coffee_village_rule_bundle():
+    drink_vessel = "tag:Drink_Vessel"
+    fluid_transformer = "tag:Fluid_Transformer"
+    hot_water_provider = "tag:Provides_Hot_Water"
+    water_dispenser = "tag:Dispenses_Water"
+    container = "tag:Container"
+
+    return {
+        "proposal_rules": [
+            {
+                "name": "Proposal_Drink_Coffee",
+                "conditions": [("goal", ("Me", "drank", "Coffee"))],
+                "proposed_action": "Action_Drink_Coffee",
+            },
+            {
                 "name": "Proposal_Go_To_Village_For_CoffeeBox",
                 "conditions": [("goal", ("Me", "has", "CoffeeBox")), ("Me", "NOT_at", "Village"), ("Village", "has", "tag:Provides_CoffeeBox")],
                 "proposed_action": "Action_Go_To_Village",
@@ -69,12 +179,12 @@ def build_coffee_rule_bundle():
             },
             {
                 "name": "Proposal_Check_Cupboard_1",
-                "conditions": [("goal", ("World", "has", "CoffeeBox")), ("World", "has", container), (container, "NOT_is_open")],
+                "conditions": [("goal", ("World", "has", "CoffeeBox")), ("World", "has", container), (container, "is_open", False)],
                 "proposed_action": "Action_Check_Cupboard_1",
             },
             {
                 "name": "Proposal_Check_Cupboard_2",
-                "conditions": [("goal", ("World", "has", drink_vessel)), ("World", "has", container), (container, "NOT_is_open")],
+                "conditions": [("goal", ("World", "has", drink_vessel)), ("World", "has", container), (container, "is_open", False)],
                 "proposed_action": "Action_Check_Cupboard_2",
             },
             {
@@ -131,13 +241,13 @@ def build_coffee_rule_bundle():
             },
             {
                 "name": "Action_Check_Cupboard_1",
-                "preconditions": [("World", "has", container), (container, "NOT_is_open")],
-                "effects": [(container, "is_open")],
+                "preconditions": [("World", "has", container), (container, "is_open", False)],
+                "effects": [(container, "is_open", True)],
             },
             {
                 "name": "Action_Check_Cupboard_2",
-                "preconditions": [("World", "has", container), (container, "NOT_is_open")],
-                "effects": [(container, "is_open")],
+                "preconditions": [("World", "has", container), (container, "is_open", False)],
+                "effects": [(container, "is_open", True)],
             },
             {
                 "name": "Action_Fill_Mug_Hot_Water",
@@ -175,7 +285,7 @@ def build_search_retrieval_rule_bundle(*, target_name, target_location="House", 
             },
             {
                 "name": f"Proposal_Open_Container_For_{target_name}",
-                "conditions": [("goal", ("Me", "has", target_name)), ("Me", "at", target_location), ("World", "NOT_has", target_name), ("World", "has", container_ref), (container_ref, "NOT_is_open")],
+                "conditions": [("goal", ("Me", "has", target_name)), ("Me", "at", target_location), ("World", "NOT_has", target_name), ("World", "has", container_ref), (container_ref, "is_open", False)],
                 "proposed_action": "Action_Check_Container",
             },
         ],
@@ -192,8 +302,8 @@ def build_search_retrieval_rule_bundle(*, target_name, target_location="House", 
             },
             {
                 "name": "Action_Check_Container",
-                "preconditions": [("World", "has", container_ref), (container_ref, "NOT_is_open")],
-                "effects": [(container_ref, "is_open")],
+                "preconditions": [("World", "has", container_ref), (container_ref, "is_open", False)],
+                "effects": [(container_ref, "is_open", True)],
             },
         ],
     }
@@ -270,6 +380,7 @@ def build_crafting_rule_bundle(*, steps, resource_locations):
 
 RULE_BUNDLE_BUILDERS = {
     "coffee": build_coffee_rule_bundle,
+    "coffee_village": build_coffee_village_rule_bundle,
     "search_retrieval": build_search_retrieval_rule_bundle,
     "crafting": build_crafting_rule_bundle,
 }
