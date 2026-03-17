@@ -3,31 +3,6 @@ from collections import Counter
 import soar_rule_library
 
 
-'''
-Kettle : No water
-Coffee : Inside Cupboard
-Mug : Inside Cupboard
-Cupboard
-Sink 
-Floor
-
-Agent Goal: Make coffee
-'''
-
-'''
-- Fillable
-- Portable
-- Sippable
-- Dispenses_{Fluid}
-- Provides_{Fluid}
-                  
-Fluids   
-    - Water
-    - Hot_Water 
-    - Coffee   
-'''
-
-
 # World Classes -------------------------------------------
 class World: 
     def __init__(self):
@@ -96,6 +71,19 @@ class World:
 class NullItem:
     def __getattr__(self, name):
         return lambda *args, **kwargs: False
+
+class baseObject:
+    def __init__(self, name="Object", tags=None, state=None):
+        self.name = name
+        self.tags = tags or []
+        self.state = state or {}
+
+    @classmethod
+    def apply_effect(cls, p, v, agent, world, *, resolved_name=None, scope=None):
+        if p in cls.state.keys() and cls.state.get(p, None) != v:
+            cls.state[p] = v
+            return True
+        return False
 
 class DrinkVessel:
     ID = 0
@@ -310,7 +298,7 @@ class Rule:
     @classmethod
     def has_item(cls, items, ref):
         # boolean membership that supports tag: refs too
-        name, obj = cls.find_item(items, ref)
+        _, obj = cls.find_item(items, ref)
         return obj is not None
 
     @classmethod
@@ -351,39 +339,27 @@ class Rule:
 
         if atom[0] == "goal":
             return current_goal == atom[1]
+        
+        subject, predicate, object = atom
+        neg, _ = cls.parse_not(predicate)
 
-        if len(atom) == 2:
-            # inside holds_atom, for len(atom)==2
-            s, p = atom
-            neg, p = cls.parse_not(p)  # if you adopted the (neg, pred) version
+        if subject == "World" and predicate == "has":
+            val = cls.has_item(world.items, object)
+            return (not val) if neg else val
 
-            it = cls.iter_subjects(agent, world, s)
-            if neg:
-                return any(not bool(obj.get_state(p)) for _, obj, _ in it)
-            return any(bool(obj.get_state(p)) for _, obj, _ in it)
-
-        if len(atom) == 3:
-            s, p, o = atom
-            neg,p = cls.parse_not(p)
-
-            if s == "World" and p == "has":
-                val = cls.has_item(world.items, o)
+        if subject == "Me": 
+            if predicate == "has":
+                val = cls.has_item(agent.items, object)
+                return (not val) if neg else val
+            elif predicate == "drank":
+                val = (object in agent.state.get("drank", set()))
                 return (not val) if neg else val
 
-            if s == "Me" and p == "has":
-                val = cls.has_item(agent.items, o)
-                return (not val) if neg else val
+        matches = cls.iter_subjects(agent, world, subject)
+        if neg:
+            return any(obj.get_state(predicate) != object for _, obj, _ in matches)
+        return any(obj.get_state(predicate) == object for _, obj, _ in matches)
 
-            if s == "Me" and p == "drank":
-                val = (o in agent.state.get("drank", set()))
-                return (not val) if neg else val
-
-            matches = cls.iter_subjects(agent, world, s)
-            if neg:
-                return any(obj.get_state(p) != o for _, obj, _ in matches)
-            return any(obj.get_state(p) == o for _, obj, _ in matches)
-
-        return False
 
 class ActionRule(Rule):
     def __init__(self, name, preconditions, effects):

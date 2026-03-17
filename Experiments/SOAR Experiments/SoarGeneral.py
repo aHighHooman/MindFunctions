@@ -50,11 +50,12 @@ class GenericObject:
     def get_tags(self):
         return getattr(self, "tags", [])
 
-    def apply_effect(self, p, v, agent, world, *, resolved_name=None, scope=None):
-        before = self.state.get(p, None)
+    @classmethod
+    def apply_effect(cls, p, v, agent, world, *, resolved_name=None, scope=None):
+        before = cls.state.get(p, None)
         if before == v:
             return False
-        self.state[p] = v
+        cls.state[p] = v
         return True
 
 
