@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Architecture Proposal: Rule/Object Integration Cleanup</title>
+  <style>
+    :root {
+      --bg: #0e1117;
+      --panel: #161b22;
+      --panel-2: #1f2630;
+      --text: #e6edf3;
+      --muted: #9da7b3;
+      --accent: #7dd3fc;
+      --accent-2: #a78bfa;
+      --good: #86efac;
+      --warn: #facc15;
+      --bad: #f87171;
+      --border: #30363d;
+      --code-bg: #0b1020;
+      --shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at top left, rgba(125, 211, 252, 0.14), transparent 38rem),
+        radial-gradient(circle at top right, rgba(167, 139, 250, 0.16), transparent 36rem),
+        var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+
+    .page {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 40px 22px 80px;
+    }
+
+    header {
+      padding: 34px;
+      border: 1px solid var(--border);
+      border-radius: 28px;
+      background: linear-gradient(135deg, rgba(22, 27, 34, 0.96), rgba(31, 38, 48, 0.9));
+      box-shadow: var(--shadow);
+    }
+
+    .eyebrow {
+      color: var(--accent);
+      font-size: 0.84rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-weight: 800;
+      margin-bottom: 10px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2.1rem, 4vw, 4.2rem);
+      line-height: 1.02;
+      letter-spacing: -0.05em;
+    }
+
+    h2 {
+      margin-top: 56px;
+      margin-bottom: 16px;
+      font-size: clamp(1.5rem, 2.4vw, 2.25rem);
+      letter-spacing: -0.035em;
+    }
+
+    h3 {
+      margin-top: 26px;
+      margin-bottom: 10px;
+      font-size: 1.2rem;
+      letter-spacing: -0.015em;
+    }
+
+    p { margin: 0 0 14px; }
+
+    .subtitle {
+      max-width: 880px;
+      color: var(--muted);
+      margin-top: 18px;
+      font-size: 1.08rem;
+    }
+
+    .grid {
+      display: grid;
+      gap: 18px;
+    }
+
+    .grid.two {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid.three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    @media (max-width: 860px) {
+      .grid.two, .grid.three { grid-template-columns: 1fr; }
+      header { padding: 24px; }
+    }
+
+    .card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: rgba(22, 27, 34, 0.82);
+      padding: 22px;
+      box-shadow: 0 10px 28px rgba(0,0,0,0.22);
+    }
+
+    .card.alt {
+      background: rgba(31, 38, 48, 0.8);
+    }
+
+    .callout {
+      border: 1px solid rgba(125, 211, 252, 0.36);
+      border-left: 5px solid var(--accent);
+      background: rgba(125, 211, 252, 0.08);
+      border-radius: var(--radius);
+      padding: 22px;
+      margin: 22px 0;
+    }
+
+    .warning {
+      border-color: rgba(250, 204, 21, 0.32);
+      border-left-color: var(--warn);
+      background: rgba(250, 204, 21, 0.08);
+    }
+
+    .danger {
+      border-color: rgba(248, 113, 113, 0.32);
+      border-left-color: var(--bad);
+      background: rgba(248, 113, 113, 0.08);
+    }
+
+    .success {
+      border-color: rgba(134, 239, 172, 0.32);
+      border-left-color: var(--good);
+      background: rgba(134, 239, 172, 0.08);
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .pill {
+      border: 1px solid rgba(125, 211, 252, 0.32);
+      border-radius: 999px;
+      padding: 7px 12px;
+      color: var(--text);
+      background: rgba(125, 211, 252, 0.08);
+      font-weight: 700;
+      font-size: 0.88rem;
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 0.78rem;
+      font-weight: 800;
+      color: #06121a;
+      background: var(--accent);
+      border-radius: 999px;
+      padding: 3px 9px;
+      margin-right: 8px;
+      vertical-align: 1px;
+    }
+
+    .tag.purple { background: var(--accent-2); color: white; }
+    .tag.green { background: var(--good); color: #052e16; }
+    .tag.yellow { background: var(--warn); color: #332200; }
+    .tag.red { background: var(--bad); color: #3b0707; }
+
+    ul, ol { padding-left: 1.25rem; }
+    li { margin: 8px 0; }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      color: #dbeafe;
+      background: rgba(125, 211, 252, 0.10);
+      border: 1px solid rgba(125, 211, 252, 0.16);
+      border-radius: 7px;
+      padding: 2px 5px;
+      font-size: 0.92em;
+    }
+
+    pre {
+      overflow-x: auto;
+      background: var(--code-bg);
+      border: 1px solid #25304a;
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+      margin: 14px 0 0;
+    }
+
+    pre code {
+      background: transparent;
+      border: 0;
+      padding: 0;
+      color: #dbeafe;
+      font-size: 0.9rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: rgba(22, 27, 34, 0.84);
+      margin-top: 14px;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 13px 14px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--accent);
+      background: rgba(125, 211, 252, 0.07);
+      font-size: 0.88rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+      margin: 20px 0;
+    }
+
+    @media (max-width: 980px) {
+      .flow { grid-template-columns: 1fr; }
+    }
+
+    .flow-node {
+      min-height: 132px;
+      border: 1px solid rgba(125, 211, 252, 0.24);
+      border-radius: 16px;
+      padding: 16px;
+      background: rgba(125, 211, 252, 0.065);
+      position: relative;
+    }
+
+    .flow-node::after {
+      content: "→";
+      position: absolute;
+      top: 50%;
+      right: -15px;
+      transform: translateY(-50%);
+      color: var(--accent);
+      font-size: 1.6rem;
+      font-weight: 900;
+    }
+
+    .flow-node:last-child::after { content: ""; }
+
+    @media (max-width: 980px) {
+      .flow-node::after {
+        content: "↓";
+        right: 18px;
+        top: auto;
+        bottom: -22px;
+      }
+      .flow-node:last-child::after { content: ""; }
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 0.94rem;
+    }
+
+    .score {
+      font-size: 2.1rem;
+      font-weight: 900;
+      letter-spacing: -0.04em;
+      color: var(--accent);
+      margin-bottom: 4px;
+    }
+
+    .toc a {
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .toc a:hover { color: var(--accent); }
+
+    .footer {
+      margin-top: 58px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .kbd {
+      display: inline-block;
+      border: 1px solid var(--border);
+      border-bottom-width: 3px;
+      border-radius: 8px;
+      padding: 1px 7px;
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+      font-size: 0.82rem;
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <div class="eyebrow">Architecture review · SOAR-like rule/object engine</div>
+      <h1>Make rules and objects meet through a real execution protocol</h1>
+      <p class="subtitle">
+        The current design is close to something useful, but the seams are showing because rule semantics,
+        object semantics, and agent/world ownership semantics are currently mixed together. The clean fix is
+        to introduce a first-class <strong>resolver + binding + typed operation</strong> layer, then make both
+        objects and rules speak that protocol.
+      </p>
+      <div class="pill-row">
+        <span class="pill">Main recommendation: typed action schemas</span>
+        <span class="pill">Kill fallback mutation</span>
+        <span class="pill">Make binding explicit</span>
+        <span class="pill">Separate objects from rule syntax</span>
+      </div>
+    </header>
+
+    <section id="summary">
+      <h2>1. Executive proposal</h2>
+      <div class="callout success">
+        <p><strong>Recommended architecture:</strong> keep the object flavor, but make the rule engine operate on a data/fact model.</p>
+        <p>
+          Objects should describe their identity, tags, components, inventory, and state. Rules should not directly
+          mutate objects. Instead, rules should compile into <strong>action schemas</strong> whose effects are explicit
+          operations such as <code>SetState</code>, <code>Transfer</code>, <code>RevealFromContainer</code>,
+          <code>Consume</code>, and <code>CreateEntity</code>.
+        </p>
+      </div>
+
+      <div class="grid three">
+        <div class="card">
+          <div class="score">1</div>
+          <h3>Entity/object layer</h3>
+          <p class="small">Stores state, tags, components, inventory relations, and names. It does not know rule syntax like <code>tag:</code> or <code>NOT_</code>.</p>
+        </div>
+        <div class="card">
+          <div class="score">2</div>
+          <h3>Resolver/binding layer</h3>
+          <p class="small">Turns selectors such as “a Drink_Vessel” into concrete entity bindings before action execution.</p>
+        </div>
+        <div class="card">
+          <div class="score">3</div>
+          <h3>Operation layer</h3>
+          <p class="small">Applies typed effects. Unknown effects fail loudly at compile time or action validation time, not silently during gameplay.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="diagnosis">
+      <h2>2. What is currently fighting you</h2>
+
+      <div class="grid two">
+        <div class="card danger">
+          <h3><span class="tag red">Problem</span>Effects are not a real language yet</h3>
+          <p>
+            Current effects are mostly triples like <code>("Me", "has", item)</code> or
+            <code>(subject, "has", value)</code>. But those triples mean different things depending on subject:
+            possession transfer, state mutation, drinking, retrieval from containers, travel, or generic object mutation.
+          </p>
+          <p>
+            Because one tuple shape is doing too many jobs, the engine needs coercion and fallback behavior.
+          </p>
+        </div>
+
+        <div class="card danger">
+          <h3><span class="tag red">Problem</span>Rules resolve objects too late</h3>
+          <p>
+            A tag reference such as <code>tag:Drink_Vessel</code> is resolved at condition/effect time by scanning
+            agent/world collections. That works for the coffee demo, but it becomes fragile when an action needs the
+            <em>same</em> vessel across multiple preconditions and effects.
+          </p>
+          <p>
+            You want “bind a mug, then keep using that mug,” not “each tuple independently finds the first matching thing.”
+          </p>
+        </div>
+
+        <div class="card danger">
+          <h3><span class="tag red">Problem</span>The object layer depends on the rule layer</h3>
+          <p>
+            Container lookup currently understands <code>tag:</code>-style references. That means object infrastructure
+            knows about rule DSL syntax. This is backwards: containers should expose contents; the resolver should interpret selectors.
+          </p>
+        </div>
+
+        <div class="card danger">
+          <h3><span class="tag red">Problem</span>The agent owns too much domain behavior</h3>
+          <p>
+            The agent should manage goals, proposals, selection, and impasses. It should not be the place where
+            “picking up an item means removing it from the world and adding it to me” is encoded as special behavior.
+          </p>
+        </div>
+
+        <div class="card warning">
+          <h3><span class="tag yellow">Smell</span>Fallbacks hide architecture bugs</h3>
+          <p>
+            A fallback like “if an object does not implement this, directly mutate its state dict” is convenient,
+            but it makes invalid protocol usage look successful. That is dangerous in a generic NPC/agent architecture.
+          </p>
+        </div>
+
+        <div class="card warning">
+          <h3><span class="tag yellow">Smell</span>The rule library is already ahead of the engine</h3>
+          <p>
+            The crafting rule bundle emits effects such as <code>("Me", "consume", item)</code> and
+            <code>("Me", "create", output)</code>. Those are good abstractions, but they need real operation handlers,
+            not more special cases added to <code>ActionRule.apply</code>.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section id="north-star">
+      <h2>3. North-star model</h2>
+      <p>
+        The clean conceptual split is:
+      </p>
+
+      <div class="flow">
+        <div class="flow-node">
+          <h3>Entities</h3>
+          <p class="small">Stable IDs, names, tags, components, inventory/container relationships, and state slots.</p>
+        </div>
+        <div class="flow-node">
+          <h3>Selectors</h3>
+          <p class="small">Declarative references like name, tag, variable, current goal target, or scoped query.</p>
+        </div>
+        <div class="flow-node">
+          <h3>Predicates</h3>
+          <p class="small">Truth checks such as <code>Has</code>, <code>StateEquals</code>, <code>At</code>, <code>Contains</code>, and <code>GoalIs</code>.</p>
+        </div>
+        <div class="flow-node">
+          <h3>Action schemas</h3>
+          <p class="small">Parameterized actions with bindings, preconditions, and typed effects.</p>
+        </div>
+        <div class="flow-node">
+          <h3>Operations</h3>
+          <p class="small">The only layer allowed to mutate world state.</p>
+        </div>
+      </div>
+
+      <div class="callout">
+        <p>
+          A rule should not ask “does this Python object have <code>fill()</code>?” It should say:
+          <strong>for some entity with tag <code>Fluid_Transformer</code>, set its contents to <code>Water</code></strong>.
+          Whether that entity is a Kettle object, a dict-backed ECS entity, or a remote game object should not matter.
+        </p>
+      </div>
+    </section>
+
+    <section id="architecture">
+      <h2>4. Proposed concrete architecture</h2>
+
+      <h3>4.1 Entity and component model</h3>
+      <p>
+        Replace inheritance-heavy object semantics with a simple entity/component core. You can still keep convenience
+        classes like <code>Kettle</code> or <code>Mug</code>, but they should mostly be constructors for entities with tags/components.
+      </p>
+
+<pre><code class="language-python">from dataclasses import dataclass, field
+from typing import Any
+
+EntityId = str
+
+@dataclass
+class Entity:
+    id: EntityId
+    name: str
+    tags: set[str] = field(default_factory=set)
+    state: dict[str, Any] = field(default_factory=dict)
+    components: set[str] = field(default_factory=set)
+
+@dataclass
+class WorldState:
+    entities: dict[EntityId, Entity] = field(default_factory=dict)
+    contains: dict[EntityId, set[EntityId]] = field(default_factory=dict)
+    held_by: dict[EntityId, EntityId] = field(default_factory=dict)
+</code></pre>
+
+      <p>
+        Under this model:
+      </p>
+      <ul>
+        <li><code>Mug</code> is an entity with tags/components like <code>Drink_Vessel</code>, <code>Fillable</code>, <code>Sippable</code>.</li>
+        <li><code>Kettle</code> is an entity with <code>Fluid_Transformer</code>, <code>Fillable</code>, <code>Heats_Water</code>.</li>
+        <li><code>Cupboard</code> is an entity with a <code>Container</code> component and a <code>contains[cupboard]</code> set.</li>
+        <li><code>Agent</code> can also be an entity, which eliminates special handling for <code>Me</code> wherever possible.</li>
+      </ul>
+
+      <h3>4.2 Selector/resolver layer</h3>
+      <p>
+        Move <code>iter_items</code>, tag parsing, name parsing, scope search, and deduplication into a resolver.
+        This is the right home for that logic. Not <code>Rule</code>, not <code>Container</code>, and not random helpers.
+      </p>
+
+<pre><code class="language-python">class Selector:
+    pass
+
+@dataclass(frozen=True)
+class ByName(Selector):
+    name: str
+
+@dataclass(frozen=True)
+class ByTag(Selector):
+    tag: str
+
+@dataclass(frozen=True)
+class Var(Selector):
+    name: str
+
+@dataclass
+class Binding:
+    values: dict[str, EntityId]
+
+class Resolver:
+    def resolve(self, world: WorldState, selector: Selector, binding: Binding) -&gt; list[EntityId]:
+        ...
+</code></pre>
+
+      <div class="callout warning">
+        <p>
+          Keep the string syntax like <code>"tag:Drink_Vessel"</code> only as a compatibility/frontend format.
+          Parse it once into <code>ByTag("Drink_Vessel")</code>. Do not let raw string DSL leak into containers or object classes.
+        </p>
+      </div>
+
+      <h3>4.3 Predicate layer</h3>
+      <p>
+        Conditions should be typed predicates, not overloaded triples.
+      </p>
+
+<pre><code class="language-python">@dataclass(frozen=True)
+class Has:
+    holder: Selector      # Me, World, container, location, etc.
+    item: Selector
+
+@dataclass(frozen=True)
+class StateEquals:
+    subject: Selector
+    key: str
+    value: object
+
+@dataclass(frozen=True)
+class Not:
+    pred: object
+
+@dataclass(frozen=True)
+class GoalIs:
+    pred: object
+</code></pre>
+
+      <p>
+        This gives you clean negation:
+      </p>
+
+<pre><code class="language-python">Not(StateEquals(ByName("Me"), "at", "House"))
+</code></pre>
+
+      <p>
+        That is much cleaner than embedding negation into the predicate string as <code>"NOT_at"</code>.
+      </p>
+
+      <h3>4.4 Action schemas with parameters</h3>
+      <p>
+        Actions should bind parameters first. Then preconditions and effects use those same bound variables.
+      </p>
+
+<pre><code class="language-python">@dataclass
+class ActionSchema:
+    name: str
+    params: dict[str, Selector]
+    preconditions: list[object]
+    effects: list[object]
+</code></pre>
+
+      <p>Example: filling a kettle with water.</p>
+
+<pre><code class="language-python">ActionSchema(
+    name="FillKettleWater",
+    params={
+        "kettle": ByTag("Fluid_Transformer"),
+        "source": ByTag("Dispenses_Water"),
+    },
+    preconditions=[
+        Has(ByName("World"), Var("kettle")),
+        Has(ByName("World"), Var("source")),
+    ],
+    effects=[
+        SetState(Var("kettle"), "has", "Water"),
+    ],
+)
+</code></pre>
+
+      <p>
+        The important change is not cosmetic. The same bound <code>kettle</code> is used throughout the action.
+        You no longer depend on multiple independent tag scans that coincidentally return the same object.
+      </p>
+
+      <h3>4.5 Typed operation/effect layer</h3>
+      <p>
+        Effects should become explicit operation objects. This is the biggest structural cleanup.
+      </p>
+
+<pre><code class="language-python">@dataclass(frozen=True)
+class SetState:
+    subject: Selector
+    key: str
+    value: object
+
+@dataclass(frozen=True)
+class Transfer:
+    item: Selector
+    source: Selector
+    target: Selector
+
+@dataclass(frozen=True)
+class RevealFromContainer:
+    item: Selector
+    container: Selector | None
+    target: Selector
+
+@dataclass(frozen=True)
+class AddToSet:
+    subject: Selector
+    key: str
+    value: object
+
+@dataclass(frozen=True)
+class Consume:
+    item: Selector
+    amount: int = 1
+
+@dataclass(frozen=True)
+class CreateEntity:
+    template: str
+    target: Selector
+</code></pre>
+
+      <p>
+        Then <code>ActionRule.apply</code> becomes boring:
+      </p>
+
+<pre><code class="language-python">def apply_action(action: ActionSchema, world: WorldState, binding: Binding) -&gt; list[Event]:
+    events = []
+    for effect in action.effects:
+        events.append(operation_dispatch.apply(effect, world, binding))
+    return events
+</code></pre>
+
+      <div class="callout success">
+        <p>
+          Boring is good here. Once effects are typed, you do not need <code>_coerce_effect</code>,
+          <code>_default_apply_effect</code>, or subject-specific branching inside the action rule.
+        </p>
+      </div>
+    </section>
+
+    <section id="mapping">
+      <h2>5. Old tuple semantics → new operation semantics</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Current form</th>
+            <th>Hidden meaning</th>
+            <th>Proposed typed form</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>("Me", "has", item)</code></td>
+            <td>Pick up item from world into agent inventory.</td>
+            <td><code>Transfer(item, source=World, target=Me)</code></td>
+          </tr>
+          <tr>
+            <td><code>("World", "retrieve", item)</code></td>
+            <td>Find item inside a container and expose it to world.</td>
+            <td><code>RevealFromContainer(item, container=Any(Container), target=World)</code></td>
+          </tr>
+          <tr>
+            <td><code>(drink_vessel, "has", "Hot_Water")</code></td>
+            <td>Set the vessel contents to hot water.</td>
+            <td><code>SetState(vessel, "has", "Hot_Water")</code> or <code>SetState(vessel, "contents", "Hot_Water")</code></td>
+          </tr>
+          <tr>
+            <td><code>("Me", "drank", "Coffee")</code></td>
+            <td>Add Coffee to agent's drank set.</td>
+            <td><code>AddToSet(Me, "drank", "Coffee")</code> or fact <code>Drank(Me, Coffee)</code></td>
+          </tr>
+          <tr>
+            <td><code>("Me", "NOT_at", "House")</code></td>
+            <td>Agent is not at House.</td>
+            <td><code>Not(StateEquals(Me, "at", "House"))</code></td>
+          </tr>
+          <tr>
+            <td><code>("Me", "consume", item)</code></td>
+            <td>Remove or decrement an item/resource.</td>
+            <td><code>Consume(item)</code></td>
+          </tr>
+          <tr>
+            <td><code>("Me", "create", output)</code></td>
+            <td>Create a crafted item and put it in inventory.</td>
+            <td><code>CreateEntity(template=output, target=Me)</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="proposal-rules">
+      <h2>6. Proposal rules should stay simple</h2>
+      <p>
+        Your proposal rules are conceptually fine: they map “current goal + world situation” to candidate actions.
+        What I would change is their representation. Make proposals point to action schemas, not string action names,
+        and optionally include a preference/priority.
+      </p>
+
+<pre><code class="language-python">@dataclass
+class ProposalRule:
+    name: str
+    when: list[object]
+    propose: str
+    priority: int = 0
+</code></pre>
+
+      <p>Example:</p>
+
+<pre><code class="language-python">ProposalRule(
+    name="NeedHotWater_UseKettle",
+    when=[
+        GoalIs(StateEquals(ByTag("Drink_Vessel"), "has", "Hot_Water")),
+        Has(ByName("World"), ByTag("Fluid_Transformer")),
+    ],
+    propose="BoilWater",
+    priority=20,
+)
+</code></pre>
+
+      <div class="callout">
+        <p>
+          The agent does not need to know how <code>BoilWater</code> works. It only needs to know that this proposal
+          is relevant to the current goal. The action schema handles grounding and execution.
+        </p>
+      </div>
+    </section>
+
+    <section id="options">
+      <h2>7. Three implementation options</h2>
+
+      <div class="grid three">
+        <div class="card">
+          <h3><span class="tag yellow">Option A</span>Minimal tuple cleanup</h3>
+          <p>
+            Keep tuple rules, but add a compiler that converts them into typed predicates and operations.
+          </p>
+          <ul>
+            <li>Fastest migration.</li>
+            <li>Good for current coffee/crafting experiments.</li>
+            <li>Still somewhat limited by legacy tuple shape.</li>
+          </ul>
+          <p><strong>Use if:</strong> you want working cleanup in a small number of files.</p>
+        </div>
+
+        <div class="card">
+          <h3><span class="tag green">Option B</span>Action schema core</h3>
+          <p>
+            Add typed selectors, predicates, binding, and operations. Keep object constructors as ergonomic wrappers.
+          </p>
+          <ul>
+            <li>Best balance of cleanliness and speed.</li>
+            <li>Rules and objects stop leaking into each other.</li>
+            <li>Extensible to village/search/crafting tasks.</li>
+          </ul>
+          <p><strong>Use if:</strong> you want the architecture to scale without a huge rewrite.</p>
+        </div>
+
+        <div class="card">
+          <h3><span class="tag purple">Option C</span>Full fact/ECS core</h3>
+          <p>
+            Treat the whole world as a fact database plus entity components. Objects become views/templates.
+          </p>
+          <ul>
+            <li>Most generic and SOAR-like.</li>
+            <li>Best for a “digital brain” architecture.</li>
+            <li>Most disruptive rewrite.</li>
+          </ul>
+          <p><strong>Use if:</strong> the goal is a reusable general NPC architecture, not just coffee demos.</p>
+        </div>
+      </div>
+
+      <div class="callout success">
+        <p>
+          My recommendation is <strong>Option B now</strong>, with the data model shaped so it can become
+          Option C later. This gives you immediate cleanup while avoiding the trap of designing an abstract universe
+          before the engine has enough real examples.
+        </p>
+      </div>
+    </section>
+
+    <section id="migration">
+      <h2>8. Migration plan</h2>
+
+      <ol>
+        <li>
+          <strong>Add typed references and parser.</strong>
+          Convert <code>"tag:X"</code>, <code>"Me"</code>, <code>"World"</code>, and normal names into typed selectors at rule-load time.
+        </li>
+        <li>
+          <strong>Add a resolver class.</strong>
+          Move <code>parse_tag</code>, <code>iter_items</code>, <code>find_item</code>, <code>has_item</code>, and
+          <code>iter_subjects</code> into this class. The resolver should be the only thing that knows how to scan scopes.
+        </li>
+        <li>
+          <strong>Add typed predicates.</strong>
+          Keep supporting old tuples temporarily, but compile them into <code>Has</code>, <code>StateEquals</code>,
+          <code>Not</code>, and <code>GoalIs</code>.
+        </li>
+        <li>
+          <strong>Add typed operations.</strong>
+          Replace <code>ActionRule.apply</code> branches with an operation dispatcher.
+        </li>
+        <li>
+          <strong>Delete fallback mutation.</strong>
+          Unknown effect? Invalid. Unknown operation? Invalid. Object lacks required component? Action is not groundable/applicable.
+        </li>
+        <li>
+          <strong>Move containers out of object/rule coupling.</strong>
+          Containers should store entity IDs. Retrieval should be an operation on world/container relations, not a method that parses rule references.
+        </li>
+        <li>
+          <strong>Ground actions before proposing/executing.</strong>
+          Generate candidate action instances with concrete bindings. Let proposal selection choose among grounded actions or action schemas plus bindings.
+        </li>
+        <li>
+          <strong>Add validation tests.</strong>
+          Every rule bundle should compile. Every action should have known predicates/effects. Every effect should either apply or return a typed failure reason.
+        </li>
+      </ol>
+    </section>
+
+    <section id="validation">
+      <h2>9. Tests and invariants to add</h2>
+
+      <div class="grid two">
+        <div class="card">
+          <h3>Compile-time validation</h3>
+          <ul>
+            <li>Reject unknown predicates like accidental <code>"NOT_has"</code> if it was meant as negation.</li>
+            <li>Reject unknown effects like <code>("Me", "craftify", x)</code>.</li>
+            <li>Reject effects with unbound variables.</li>
+            <li>Reject action schemas whose params are never used.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h3>Runtime invariants</h3>
+          <ul>
+            <li>An entity should not be simultaneously in <code>World</code> and <code>Me</code> unless your model explicitly allows shared references.</li>
+            <li>Container contents should not also appear as visible world items unless revealed.</li>
+            <li>An effect should never silently skip unless the operation explicitly returns <code>NoOp</code> by design.</li>
+            <li>Tag-bound action variables should remain stable across preconditions and effects.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h3>Regression cases</h3>
+          <ul>
+            <li>One mug, one kettle, hidden coffee: should succeed.</li>
+            <li>Multiple mugs/kettles: action bindings should be internally consistent.</li>
+            <li>No vessel in world/containers: should fail with a clear missing-resource reason.</li>
+            <li>Crafting bundle: <code>consume</code> and <code>create</code> should work without adding ad-hoc branches.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h3>Debuggability</h3>
+          <ul>
+            <li>Log chosen proposal, chosen action schema, concrete binding, and operation events.</li>
+            <li>Log why each rejected action binding failed.</li>
+            <li>Keep final traces human-readable: “Transfer Mug from World to Me,” not “APPLY tag:Drink_Vessel.has=True.”</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="answering-iter-items">
+      <h2>10. About removing <code>iter_items</code> from <code>Rule</code></h2>
+
+      <div class="callout">
+        <p>
+          Yes: remove it from <code>Rule</code>. But do not move it to <code>World</code> as a random method either.
+          Put it in a <strong>Resolver</strong> or <strong>QueryEngine</strong>.
+        </p>
+      </div>
+
+      <p>
+        Why? Because <code>iter_items</code> is not really a rule concept or a world concept. It is a
+        <strong>reference-resolution</strong> concept. It needs to understand:
+      </p>
+      <ul>
+        <li>scope order: agent inventory vs visible world vs container contents vs locations;</li>
+        <li>selector type: name, tag, variable, component, current goal target;</li>
+        <li>deduplication: same entity visible through multiple paths;</li>
+        <li>binding consistency: same variable should keep pointing to the same entity;</li>
+        <li>visibility/knowledge restrictions: what the agent knows vs what the world actually contains.</li>
+      </ul>
+
+      <p>
+        A dedicated resolver lets you evolve all of that without contaminating the object classes or rule classes.
+      </p>
+    </section>
+
+    <section id="sketch">
+      <h2>11. Sketch of the cleaned loop</h2>
+
+<pre><code class="language-python">def step(agent: AgentState, world: WorldState, rules: RuleBase):
+    goal = agent.current_goal()
+
+    # 1. Remove satisfied goals.
+    while goal and evaluator.holds(goal, world, Binding({"Me": agent.entity_id})):
+        agent.pop_goal()
+        goal = agent.current_goal()
+
+    # 2. Generate proposal candidates.
+    proposals = []
+    for proposal_rule in rules.proposals:
+        for binding in grounder.bind_conditions(proposal_rule.when, world, agent, goal):
+            proposals.append(ProposalInstance(proposal_rule, binding))
+
+    # 3. Expand proposed action schemas into grounded actions.
+    candidates = []
+    for proposal in proposals:
+        schema = rules.actions[proposal.propose]
+        candidates.extend(grounder.ground_action(schema, world, agent, proposal.binding))
+
+    # 4. Pick a candidate.
+    choice = policy.select(candidates)
+
+    # 5. If applicable, execute typed operations.
+    if choice and evaluator.all_hold(choice.preconditions, world, choice.binding):
+        return executor.apply(choice.effects, world, choice.binding)
+
+    # 6. Otherwise, create subgoal from the most useful failed precondition.
+    missing = diagnose_missing_precondition(choice, world)
+    agent.push_goal(missing)
+</code></pre>
+
+      <p>
+        Notice what disappeared: no fallback mutation, no action-specific branches for <code>Me.has</code>,
+        no container object parsing <code>tag:</code>, no coercing two-tuples into three-tuples during execution.
+      </p>
+    </section>
+
+    <section id="final">
+      <h2>12. Final recommendation</h2>
+
+      <div class="callout success">
+        <p>
+          The architecture should not ask every object to be clever. It should make the world model and operation
+          system clever, and keep objects simple.
+        </p>
+        <p>
+          The most valuable refactor is: <strong>Resolver + typed predicates + typed operations + action schemas with bindings</strong>.
+          Once that exists, your rules and objects can scale together instead of constantly needing compatibility glue.
+        </p>
+      </div>
+
+      <p>
+        I would not spend more time polishing the current tuple/fallback execution path. Treat it as a prototype
+        that revealed the necessary abstractions. Preserve the nice parts — tags, rule bundles, goal proposals,
+        object constructors — but move semantics into a single explicit protocol.
+      </p>
+    </section>
+
+    <section class="footer">
+      <p>
+        Source basis: reviewed the uploaded <code>MakingCoffeeWithSoar.py</code> and <code>soar_rule_library.py</code>.
+        This proposal focuses on architecture and migration strategy rather than a drop-in patch.
+      </p>
+    </section>
+  </main>
+</body>
+</html>
